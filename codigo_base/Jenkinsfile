@@ -1,0 +1,75 @@
+// =============================================================================
+// Taller Evaluativo 2 - Fase 4: Pipeline Declarativo en Jenkins
+//
+// Complete los TODOs de cada etapa. Recuerde:
+//   - Prohibido el tag ":latest" al publicar en Nexus (empaquetamiento
+//     inmutable, Fase 2).
+//   - Las credenciales (usuario/clave de Nexus, token de GitHub) se
+//     inyectan mediante los IDs configurados en Jenkins > Credentials,
+//     NUNCA en texto plano dentro de este archivo.
+// =============================================================================
+
+pipeline {
+    agent any
+
+    environment {
+        // TODO
+        IMAGE_TAG = "TODO-DEFINA-EN-UN-STAGE-SCRIPT"
+
+        // TODO
+        NEXUS_REGISTRY   = "TODO-HOST:TODO-PUERTO-DOCKER-REGISTRY"
+        NEXUS_MAVEN_REPO = "TODO-URL-REPOSITORIO-MAVEN-RELEASES"
+
+        // TODO
+        NEXUS_CREDENTIALS_ID = "TODO-ID-CREDENCIAL-NEXUS"
+    }
+
+    stages {
+
+        stage('Checkout & Test') {
+            steps {
+                checkout scm
+
+                script {
+                    // TODO:
+                }
+
+                dir('backend') {
+                    // TODO
+                }
+            }
+        }
+
+        stage('Package & Tag Inmutable') {
+            steps {
+                dir('backend') {
+                    // TODO
+                }
+                dir('frontend') {
+                    // TODO:
+                }
+            }
+        }
+
+        stage('Publish to Nexus') {
+            steps {
+                // TODO
+            }
+        }
+
+        stage('Deploy & Smoke Test') {
+            steps {
+                // TODO
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "Pipeline finalizado en verde. Artefactos publicados con tag: ${env.IMAGE_TAG}"
+        }
+        failure {
+            echo "El pipeline falló. Revise los logs de la etapa correspondiente antes de reintentar."
+        }
+    }
+}

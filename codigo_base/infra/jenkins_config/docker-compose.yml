@@ -1,0 +1,29 @@
+# =============================================================================
+# Taller Evaluativo 2 - Fase 3: Orquestación del Ecosistema CI/CD
+# Jenkins (orquestador) + smee-client (relay de webhooks de GitHub)
+#
+# Complete los TODOs
+# =============================================================================
+version: "3.9"
+
+services:
+  jenkins:
+    build: .
+    container_name:
+    networks:
+    ports:
+    volumes:
+
+  smee:
+    build: ./smee
+    container_name: smee-client
+    environment:
+    networks:
+    depends_on:
+
+networks:
+  cicd_network:
+    name: cicd_network
+
+volumes:
+  jenkins_home:

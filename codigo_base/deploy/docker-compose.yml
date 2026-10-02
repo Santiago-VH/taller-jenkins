@@ -1,0 +1,39 @@
+# =============================================================================
+# Taller Evaluativo 2 - Despliegue de StudyTrack (backend + frontend)
+#
+# Este stack es el que el Jenkinsfile ejecuta en su etapa "Deploy & Smoke
+# Test" (Fase 4), usando las imágenes que la etapa "Publish to Nexus"
+# acaba de publicar en su Docker Registry hosted.
+#
+# Complete los TODOs: red compartida, healthcheck del backend y la
+# condición de arranque del frontend.
+# =============================================================================
+version: "3.9"
+
+services:
+  backend:
+    # TODO
+    container_name: 
+    ports:
+    networks:
+    healthcheck:
+      test:
+      interval: 
+      timeout: 
+      retries: 
+      start_period: 
+
+  frontend:
+    # TODO:
+    image: 
+    container_name:
+    ports:
+    networks:
+    depends_on:
+      backend:
+        condition:
+
+networks:
+  # TODO
+  product-network:
+    driver: 

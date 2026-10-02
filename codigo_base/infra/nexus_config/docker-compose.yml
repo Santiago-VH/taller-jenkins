@@ -1,0 +1,30 @@
+# =============================================================================
+# Taller Evaluativo 2 - Fase 3: Orquestación del Ecosistema CI/CD
+# Sonatype Nexus (repositorio de artefactos: maven-releases + docker-hosted)
+#
+# Complete los TODOs para levantar Nexus.
+# =============================================================================
+version: "3.9"
+
+services:
+  nexus:
+    image: sonatype/nexus3:3.68.1
+    container_name: nexus
+    networks:
+      - cicd_network
+    ports:
+    volumes:
+    environment:
+    healthcheck:
+      test: 
+      interval: 
+      timeout: 
+      retries: 
+      start_period: 
+
+networks:
+  cicd_network:
+    external: true
+
+volumes:
+  nexus_data:
