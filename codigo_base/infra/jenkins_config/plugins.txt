@@ -7,3 +7,4 @@ htmlpublisher:1.35
 junit:1.63
 timestamper:1.25
 ws-cleanup:0.45
+github:1.37.3.1

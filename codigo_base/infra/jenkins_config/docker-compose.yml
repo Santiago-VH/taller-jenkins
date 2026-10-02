@@ -2,24 +2,50 @@
 # Taller Evaluativo 2 - Fase 3: Orquestación del Ecosistema CI/CD
 # Jenkins (orquestador) + smee-client (relay de webhooks de GitHub)
 #
-# Complete los TODOs
+# Levantar ANTES que Nexus: este stack crea la red cicd_network.
 # =============================================================================
-version: "3.9"
-
 services:
   jenkins:
     build: .
-    container_name:
+    image: jenkins-cicd:lts-jdk17-docker
+    container_name: jenkins
+    restart: unless-stopped
+    # El socket de Docker del host pertenece a root; ejecutar el controlador
+    # como root le permite usar "docker build/push/compose" contra el daemon
+    # del host. (Aceptable en un laboratorio local; en producción se usarían
+    # agentes dedicados o el GID del grupo docker con group_add.)
+    user: root
     networks:
+      - cicd_network
     ports:
+      - "${JENKINS_UI_PORT:-9082}:8080"
+      - "${JENKINS_AGENT_PORT:-50000}:50000"
     volumes:
+      # Persistencia de jobs, credenciales, plugins e historial
+      - jenkins_home:/var/jenkins_home
+      # Docker-outside-of-Docker: el CLI del contenedor usa el daemon del host
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/login > /dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 90s
 
   smee:
     build: ./smee
     container_name: smee-client
+    restart: unless-stopped
     environment:
+      # Canal público de smee.io (definido en .env)
+      SMEE_URL: ${SMEE_CHANNEL_URL}
+      # Endpoint del plugin GitHub en Jenkins, resuelto por DNS dentro de la red
+      SMEE_TARGET: http://jenkins:8080/github-webhook/
     networks:
+      - cicd_network
     depends_on:
+      jenkins:
+        condition: service_healthy
 
 networks:
   cicd_network:

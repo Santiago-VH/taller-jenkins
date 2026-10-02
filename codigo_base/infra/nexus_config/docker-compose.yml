@@ -2,25 +2,34 @@
 # Taller Evaluativo 2 - Fase 3: Orquestación del Ecosistema CI/CD
 # Sonatype Nexus (repositorio de artefactos: maven-releases + docker-hosted)
 #
-# Complete los TODOs para levantar Nexus.
+# Requisito: la red cicd_network debe existir (la crea el stack de Jenkins, o
+# manualmente con: docker network create cicd_network).
 # =============================================================================
-version: "3.9"
-
 services:
   nexus:
     image: sonatype/nexus3:3.68.1
     container_name: nexus
+    restart: unless-stopped
     networks:
       - cicd_network
     ports:
+      # UI / API REST (en el contenedor Nexus escucha en 8081)
+      - "${NEXUS_UI_PORT:-9081}:8081"
+      # Conector HTTP del repositorio docker-hosted (se configura en la UI
+      # de Nexus con el puerto 9080 al crear el repositorio)
+      - "${NEXUS_DOCKER_REGISTRY_PORT:-9080}:9080"
     volumes:
+      - nexus_data:/nexus-data
     environment:
+      # Limita la memoria de la JVM para convivir con Jenkins en la misma máquina
+      INSTALL4J_ADD_VM_PARAMS: "-Xms1024m -Xmx1024m -XX:MaxDirectMemorySize=1024m -Djava.util.prefs.userRoot=/nexus-data/javaprefs"
     healthcheck:
-      test: 
-      interval: 
-      timeout: 
-      retries: 
-      start_period: 
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8081/service/rest/v1/status || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      # Nexus tarda varios minutos en el primer arranque
+      start_period: 180s
 
 networks:
   cicd_network:

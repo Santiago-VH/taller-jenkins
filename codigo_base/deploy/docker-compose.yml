@@ -5,35 +5,47 @@
 # Test" (Fase 4), usando las imágenes que la etapa "Publish to Nexus"
 # acaba de publicar en su Docker Registry hosted.
 #
-# Complete los TODOs: red compartida, healthcheck del backend y la
-# condición de arranque del frontend.
+# NEXUS_REGISTRY e IMAGE_TAG los exporta el pipeline. Nunca se usa ":latest":
+# si IMAGE_TAG no está definido, docker compose aborta con error.
 # =============================================================================
-version: "3.9"
+name: studytrack
 
 services:
   backend:
-    # TODO
-    container_name: 
+    image: ${NEXUS_REGISTRY:-localhost:9080}/studytrack-api:${IMAGE_TAG:?Defina IMAGE_TAG (version inmutable)}
+    container_name: studytrack-api
+    restart: unless-stopped
     ports:
+      - "8080:8080"
     networks:
+      - product-network
+      # Red del ecosistema CI/CD: permite que Jenkins ejecute el smoke test
+      # contra http://studytrack-api:8080 desde su propio contenedor
+      - cicd_network
     healthcheck:
-      test:
-      interval: 
-      timeout: 
-      retries: 
-      start_period: 
+      # La imagen JRE Alpine incluye wget (busybox); no se agrega curl para
+      # no aumentar la superficie de la imagen de runtime
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/api/tasks > /dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
 
   frontend:
-    # TODO:
-    image: 
-    container_name:
+    image: ${NEXUS_REGISTRY:-localhost:9080}/studytrack-frontend:${IMAGE_TAG:?Defina IMAGE_TAG (version inmutable)}
+    container_name: studytrack-frontend
+    restart: unless-stopped
     ports:
+      - "3000:3000"
     networks:
+      - product-network
     depends_on:
       backend:
-        condition:
+        condition: service_healthy
 
 networks:
-  # TODO
+  # Red interna de la aplicación
   product-network:
-    driver: 
+    driver: bridge
+  cicd_network:
+    external: true

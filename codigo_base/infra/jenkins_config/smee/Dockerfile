@@ -6,6 +6,11 @@ FROM node:20-alpine
 
 RUN npm install -g smee-client
 
-# TODO
+# Valores por defecto (docker-compose los sobrescribe desde .env)
+ENV SMEE_URL="" \
+    SMEE_TARGET="http://jenkins:8080/github-webhook/"
+
+# No requiere privilegios: solo hace conexiones salientes
+USER node
 
 ENTRYPOINT ["sh", "-c", "smee -u \"$SMEE_URL\" -t \"$SMEE_TARGET\""]

@@ -1,27 +1,55 @@
 // =============================================================================
 // Taller Evaluativo 2 - Fase 4: Pipeline Declarativo en Jenkins
 //
-// Complete los TODOs de cada etapa. Recuerde:
-//   - Prohibido el tag ":latest" al publicar en Nexus (empaquetamiento
-//     inmutable, Fase 2).
-//   - Las credenciales (usuario/clave de Nexus, token de GitHub) se
-//     inyectan mediante los IDs configurados en Jenkins > Credentials,
-//     NUNCA en texto plano dentro de este archivo.
+//   - Prohibido el tag ":latest": cada build publica la versión inmutable
+//     1.0.<BUILD_NUMBER>-<commit corto> (JAR, imágenes Docker y despliegue).
+//   - Las credenciales de Nexus se inyectan con withCredentials usando el ID
+//     configurado en Jenkins > Credentials (nunca en texto plano).
+//   - El job se configura como "Pipeline script from SCM" con
+//     Script Path = codigo_base/Jenkinsfile (la carpeta codigo_base es la
+//     raíz del proyecto dentro del repositorio).
 // =============================================================================
 
 pipeline {
     agent any
 
+    // Disparo automático: GitHub -> smee.io -> smee-client -> /github-webhook/
+    triggers {
+        githubPush()
+    }
+
+    options {
+        timestamps()
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '15'))
+        timeout(time: 30, unit: 'MINUTES')
+    }
+
     environment {
-        // TODO
-        IMAGE_TAG = "TODO-DEFINA-EN-UN-STAGE-SCRIPT"
+        // Carpeta raíz del proyecto dentro del repositorio
+        APP_DIR = 'codigo_base'
 
-        // TODO
-        NEXUS_REGISTRY   = "TODO-HOST:TODO-PUERTO-DOCKER-REGISTRY"
-        NEXUS_MAVEN_REPO = "TODO-URL-REPOSITORIO-MAVEN-RELEASES"
+        // IMAGE_TAG NO se declara aquí: las variables de este bloque son de
+        // solo lectura, por eso se calcula en el stage "Checkout & Test".
 
-        // TODO
-        NEXUS_CREDENTIALS_ID = "TODO-ID-CREDENCIAL-NEXUS"
+        // Registry Docker hosted de Nexus. Lo usa el daemon del HOST (socket
+        // montado), por eso es localhost y no el nombre del contenedor.
+        NEXUS_REGISTRY   = 'localhost:9080'
+        // Maven deploy se ejecuta DENTRO del contenedor de Jenkins, que alcanza
+        // a Nexus por DNS en la red cicd_network.
+        NEXUS_URL        = 'http://nexus:8081'
+        NEXUS_MAVEN_REPO = 'http://nexus:8081/repository/maven-releases/'
+
+        // ID de la credencial (Username with password) creada en Jenkins
+        NEXUS_CREDENTIALS_ID = 'nexus-credentials'
+
+        BACKEND_IMAGE  = 'studytrack-api'
+        FRONTEND_IMAGE = 'studytrack-frontend'
+        // URL del backend que usará el navegador (se incrusta en el build de Vite)
+        VITE_API_URL   = 'http://localhost:8080'
+
+        // Archivo donde se recuerda la última versión desplegada con éxito (rollback)
+        LAST_GOOD_FILE = "${JENKINS_HOME}/studytrack-last-good-tag"
     }
 
     stages {
@@ -31,40 +59,122 @@ pipeline {
                 checkout scm
 
                 script {
-                    // TODO:
+                    // Versionado inmutable: número de build + hash corto del commit
+                    env.GIT_SHORT = sh(script: 'git rev-parse --short=7 HEAD', returnStdout: true).trim()
+                    env.IMAGE_TAG = "1.0.${env.BUILD_NUMBER}-${env.GIT_SHORT}"
+                    currentBuild.displayName = "#${env.BUILD_NUMBER} - ${env.IMAGE_TAG}"
+                    echo "Versión inmutable de este build: ${env.IMAGE_TAG}"
                 }
 
-                dir('backend') {
-                    // TODO
+                dir("${APP_DIR}/backend") {
+                    sh 'mvn -B clean test'
+                }
+            }
+            post {
+                always {
+                    junit allowEmptyResults: true, testResults: "${APP_DIR}/backend/target/surefire-reports/*.xml"
                 }
             }
         }
 
         stage('Package & Tag Inmutable') {
             steps {
-                dir('backend') {
-                    // TODO
+                dir("${APP_DIR}/backend") {
+                    // JAR versionado (las pruebas ya pasaron en el stage anterior)
+                    sh 'mvn -B package -DskipTests -Drevision=${IMAGE_TAG}'
+                    sh '''
+                        docker build \
+                          --build-arg REVISION=${IMAGE_TAG} \
+                          --label org.opencontainers.image.revision=${GIT_COMMIT} \
+                          -t ${NEXUS_REGISTRY}/${BACKEND_IMAGE}:${IMAGE_TAG} .
+                    '''
                 }
-                dir('frontend') {
-                    // TODO:
+                dir("${APP_DIR}/frontend") {
+                    sh '''
+                        docker build \
+                          --build-arg VITE_API_URL=${VITE_API_URL} \
+                          --label org.opencontainers.image.version=${IMAGE_TAG} \
+                          --label org.opencontainers.image.revision=${GIT_COMMIT} \
+                          -t ${NEXUS_REGISTRY}/${FRONTEND_IMAGE}:${IMAGE_TAG} .
+                    '''
                 }
+                sh 'docker image ls --filter "reference=${NEXUS_REGISTRY}/*:${IMAGE_TAG}"'
             }
         }
 
         stage('Publish to Nexus') {
             steps {
-                // TODO
+                withCredentials([usernamePassword(credentialsId: env.NEXUS_CREDENTIALS_ID,
+                                                  usernameVariable: 'NEXUS_USER',
+                                                  passwordVariable: 'NEXUS_PASS')]) {
+                    // 1) JAR -> maven-releases (ci-settings.xml lee NEXUS_USER/NEXUS_PASS del entorno)
+                    dir("${APP_DIR}/backend") {
+                        sh 'mvn -B deploy -DskipTests -s ci-settings.xml -Drevision=${IMAGE_TAG} -Dnexus.url=${NEXUS_URL}'
+                    }
+
+                    // 2) Imágenes -> docker-hosted (comillas simples: el secreto no pasa por Groovy)
+                    sh '''
+                        echo "$NEXUS_PASS" | docker login ${NEXUS_REGISTRY} -u "$NEXUS_USER" --password-stdin
+                        docker push ${NEXUS_REGISTRY}/${BACKEND_IMAGE}:${IMAGE_TAG}
+                        docker push ${NEXUS_REGISTRY}/${FRONTEND_IMAGE}:${IMAGE_TAG}
+                    '''
+                }
             }
         }
 
         stage('Deploy & Smoke Test') {
             steps {
-                // TODO
+                dir("${APP_DIR}") {
+                    // pull explícito: lo que se despliega es lo que quedó en Nexus
+                    sh '''
+                        docker compose -f deploy/docker-compose.yml pull
+                        docker compose -f deploy/docker-compose.yml up -d --remove-orphans
+                        docker compose -f deploy/docker-compose.yml ps
+                    '''
+                }
+                // Smoke test con reintentos desde el contenedor de Jenkins
+                // (studytrack-api comparte la red cicd_network)
+                sh '''
+                    for i in $(seq 1 20); do
+                      if curl -fsS http://studytrack-api:8080/api/tasks; then
+                        echo ""
+                        echo "Smoke test OK en el intento $i (versión ${IMAGE_TAG})"
+                        exit 0
+                      fi
+                      echo "Intento $i/20: el backend aún no responde, reintentando en 5s..."
+                      sleep 5
+                    done
+                    echo "Smoke test FALLIDO tras 20 intentos"
+                    exit 1
+                '''
+            }
+            post {
+                success {
+                    sh 'echo "${IMAGE_TAG}" > "${LAST_GOOD_FILE}"'
+                }
+                failure {
+                    dir("${APP_DIR}") {
+                        sh 'docker compose -f deploy/docker-compose.yml logs --tail=100 || true'
+                        // Rollback: volver a la última versión inmutable que pasó el smoke test
+                        sh '''
+                            if [ -f "${LAST_GOOD_FILE}" ]; then
+                              PREV_TAG=$(cat "${LAST_GOOD_FILE}")
+                              echo "Rollback a la versión ${PREV_TAG}"
+                              IMAGE_TAG=${PREV_TAG} docker compose -f deploy/docker-compose.yml up -d
+                            else
+                              echo "No hay una versión previa exitosa para hacer rollback"
+                            fi
+                        '''
+                    }
+                }
             }
         }
     }
 
     post {
+        always {
+            sh 'docker logout ${NEXUS_REGISTRY} || true'
+        }
         success {
             echo "Pipeline finalizado en verde. Artefactos publicados con tag: ${env.IMAGE_TAG}"
         }

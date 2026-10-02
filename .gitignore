@@ -1,1 +1,11 @@
 .DS_Store
+
+# Archivos .env locales (se crean a partir de .env.example)
+.env
+
+# Artefactos de build
+target/
+.flattened-pom.xml
+node_modules/
+dist/
+*.tsbuildinfo
